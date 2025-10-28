@@ -23,38 +23,20 @@
         "type": "git",
         "url": "git+https://github.com/miroslavpejic85/mirotalkc2c"
     },
-    "keywords": [
-        "c2c",
-        "webrtc",
-        "socket.io",
-        "ngrok",
-        "video",
-        "audio",
-        "cam2cam"
-    ],
     "author": "Miroslav Pejic",
     "license": "AGPL-3.0",
     "homepage": "https://github.com/miroslavpejic85/mirotalkc2c",
     "dependencies": {
-        "@mattermost/client": "11.2.0",
-        "@ngrok/ngrok": "1.7.0",
-        "@sentry/node": "^10.32.1",
         "colors": "^1.4.0",
         "compression": "^1.8.1",
         "cors": "^2.8.5",
         "dompurify": "^3.3.1",
         "dotenv": "^17.2.3",
         "express": "^5.2.1",
-        "express-openid-connect": "^2.19.3",
         "he": "^1.2.0",
         "helmet": "^8.1.0",
-        "httpolyglot": "0.1.2",
-        "js-yaml": "^4.1.1",
         "jsdom": "^27.3.0",
-        "nodemailer": "^7.0.12",
         "socket.io": "^4.8.2",
-        "swagger-ui-express": "5.0.1",
-        "uuid": "13.0.0",
         "xss": "^1.0.15"
     },
     "devDependencies": {

@@ -390,7 +390,7 @@ function roomIsBusy() {
         hideClass: { popup: 'animate__animated animate__fadeOutUp' },
     }).then((result) => {
         if (result.isConfirmed) {
-            openURL('/');
+            openURL('/room');
         }
     });
 }
@@ -1502,7 +1502,7 @@ function loadLocalStorageConfig() {
 
 function endCall() {
     saveLocalStorageConfig();
-    surveyURL ? giveMeFeedback() : redirectOnLeave();
+    openURL('/room')
 }
 
 function giveMeFeedback() {
@@ -1533,15 +1533,6 @@ function giveMeFeedback() {
     });
 }
 
-function redirectToSurvey() {
-    signalingSocket.disconnect();
-    surveyURL ? openURL(surveyURL) : openURL('/');
-}
-
-function redirectOnLeave() {
-    signalingSocket.disconnect();
-    redirectURL ? openURL(redirectURL) : openURL('/');
-}
 
 function attachMediaStream(element, stream) {
     element.srcObject = stream;

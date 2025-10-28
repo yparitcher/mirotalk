@@ -23,31 +23,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 async function initHome() {
     roomIdIn.value = roomId ? roomId : filterXSS(window.localStorage.room) || '';
-
-    const getUserName = async () => {
-        try {
-            const { data: profile } = await axios.get('/profile', { timeout: 5000 });
-            if (profile && profile.name) {
-                console.log('AXIOS GET OIDC Profile retrieved successfully', profile);
-                window.localStorage.name = profile.name;
-            }
-        } catch (error) {
-            console.error('AXIOS OIDC Error fetching profile', error.message || error);
-        }
-        return window.localStorage.name || '';
-    };
-
-    userNameIn.value = filterXSS(await getUserName());
-
-    randomRoomBtn.onclick = () => {
-        roomIdIn.value = ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
-            (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
-        );
-    };
-
-    randomUserBtn.onclick = () => {
-        userNameIn.value = 'User_' + Math.floor(Math.random() * 1000000);
-    };
+    userNameIn.value = filterXSS(window.localStorage.name) || '';
 
     joinBtn.onclick = () => {
         if (roomIdIn.value && userNameIn.value) {
@@ -58,12 +34,6 @@ async function initHome() {
         }
     };
 
-    supportBtn.onclick = () => {
-        window.open('https://docs.mirotalk.com/about', '_blank');
-    };
-
-    !config.support && elementDisplay(supportBtn, false);
-    //...
 }
 
 function elementDisplay(elem, display) {

@@ -14,58 +14,41 @@
 
 require('dotenv').config();
 
-const { auth, requiresAuth } = require('express-openid-connect');
 const { Server } = require('socket.io');
-const httpolyglot = require('httpolyglot');
 const compression = require('compression');
 const express = require('express');
 const cors = require('cors');
 const checkXSS = require('./xss.js');
 const path = require('path');
-const ngrok = require('@ngrok/ngrok');
-const app = express();
 const helmet = require('helmet');
-const fs = require('fs');
 const logs = require('./logs');
-const log = new logs('server');
-const ServerApi = require('./api');
-const mattermostCli = require('./mattermost');
-const sentry = require('./sentry');
-const yaml = require('js-yaml');
-const swaggerUi = require('swagger-ui-express');
-const swaggerDocument = yaml.load(fs.readFileSync(path.join(__dirname, '/api/swagger.yaml'), 'utf8'));
-const queryJoin = '/join?room=test&name=test';
-const queryRoom = '/?room=test';
 const packageJson = require('../package.json');
+const { createServer } = require('node:http');
 
-// Email alerts and notifications
-const nodemailer = require('./lib/nodemailer');
 const { env } = require('process');
+const log = new logs('server');
 
-// Sentry
-sentry.start();
+const app = express();
+const server = createServer(app);
 
-// Define paths to the SSL key and certificate files
-const keyPath = path.join(__dirname, 'ssl/key.pem');
-const certPath = path.join(__dirname, 'ssl/cert.pem');
+const listen_pid = parseInt(process.env.LISTEN_PID);
+const listen_fds = parseInt(process.env.LISTEN_FDS);
+const SD_LISTEN_FDS_START = 3;
 
-// Read SSL key and certificate files securely
-const options = {
-    key: fs.readFileSync(keyPath, 'utf-8'),
-    cert: fs.readFileSync(certPath, 'utf-8'),
-};
+if (listen_pid !== 0 && listen_pid !== process.pid) {
+	throw new Error(`received LISTEN_PID ${listen_pid} but current process id is ${process.pid}`);
+}
+if (listen_fds > 1) {
+	throw new Error(
+		`only one socket is allowed for socket activation, but LISTEN_FDS was set to ${listen_fds}`
+	);
+}
 
-// Server both http and https
-const server = httpolyglot.createServer(options, app);
+const host = process.env.HOST || `http://localhost`;
+const fileDescriptor = SD_LISTEN_FDS_START;
 
 const trustProxy = !!getEnvBoolean(process.env.TRUST_PROXY);
 
-const port = process.env.PORT || 8080;
-const host = process.env.HOST || `http://localhost:${port}`;
-
-const apiKeySecret = process.env.API_KEY_SECRET || 'mirotalkc2c_default_secret';
-const apiBasePath = '/api/v1'; // api endpoint path
-const apiDocs = host + apiBasePath + '/docs'; // api docs
 
 // Cors
 const cors_origin = process.env.CORS_ORIGIN;
@@ -101,8 +84,6 @@ const io = new Server({
     cors: corsOptions,
 }).listen(server);
 
-const ngrokEnabled = getEnvBoolean(process.env.NGROK_ENABLED);
-const ngrokAuthToken = process.env.NGROK_AUTH_TOKEN;
 
 const iceServers = [];
 const stunServerUrl = process.env.STUN_SERVER_URL;
@@ -116,51 +97,12 @@ if (turnServerEnabled && turnServerUrl && turnServerUsername && turnServerCreden
     iceServers.push({ urls: turnServerUrl, username: turnServerUsername, credential: turnServerCredential });
 }
 
-const mattermostCfg = {
-    enabled: getEnvBoolean(process.env.MATTERMOST_ENABLED),
-    server_url: process.env.MATTERMOST_SERVER_URL,
-    username: process.env.MATTERMOST_USERNAME,
-    password: process.env.MATTERMOST_PASSWORD,
-    token: process.env.MATTERMOST_TOKEN,
-};
-
 const surveyURL = process.env.SURVEY_URL || false;
 const redirectURL = process.env.REDIRECT_URL || false;
 
-const OIDC = {
-    enabled: process.env.OIDC_ENABLED ? getEnvBoolean(process.env.OIDC_ENABLED) : false,
-    baseUrlDynamic: process.env.OIDC_BASE_URL_DYNAMIC ? getEnvBoolean(process.env.OIDC_BASE_URL_DYNAMIC) : false,
-    config: {
-        issuerBaseURL: process.env.OIDC_ISSUER_BASE_URL,
-        clientID: process.env.OIDC_CLIENT_ID,
-        clientSecret: process.env.OIDC_CLIENT_SECRET,
-        baseURL: process.env.OIDC_BASE_URL,
-        secret: process.env.SESSION_SECRET,
-        authorizationParams: {
-            response_type: 'code',
-            scope: 'openid profile email',
-        },
-        authRequired: process.env.OIDC_AUTH_REQUIRED ? getEnvBoolean(process.env.OIDC_AUTH_REQUIRED) : false,
-        auth0Logout: process.env.OIDC_AUTH_LOGOUT ? getEnvBoolean(process.env.OIDC_AUTH_LOGOUT) : true, // Set to true to enable logout with Auth0
-        routes: {
-            callback: '/auth/callback',
-            login: false,
-            logout: '/logout',
-        },
-    },
-};
 
-const OIDCAuth = function (req, res, next) {
-    if (OIDC.enabled) {
-        if (req.oidc.isAuthenticated()) {
-            log.debug('OIDC ------> User already Authenticated');
-            return next();
-        }
-        requiresAuth()(req, res, next);
-    } else {
-        next();
-    }
-};
+
+
 
 const frontendDir = path.join(__dirname, '../', 'frontend');
 const htmlClient = path.join(__dirname, '../', 'frontend/html/client.html');
@@ -175,9 +117,8 @@ app.use(helmet.noSniff()); // Enable content type sniffing prevention
 app.use(express.static(frontendDir));
 app.use(cors(corsOptions));
 app.use(compression());
-app.use(express.json()); // Api parse body data as json
-app.use(express.urlencoded({ extended: false })); // Mattermost
-app.use(apiBasePath + '/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument)); // api docs
+// app.use(express.json()); // Api parse body data as json
+// app.use(express.urlencoded({ extended: false })); // Mattermost
 
 // Logs requests
 app.use((req, res, next) => {
@@ -189,8 +130,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Mattermost
-const mattermost = new mattermostCli(app, mattermostCfg);
+
 
 app.use((err, req, res, next) => {
     if (err instanceof SyntaxError || err.status === 400 || 'body' in err) {
@@ -209,55 +149,15 @@ app.use((err, req, res, next) => {
     }
 });
 
-// OpenID Connect - Dynamically set baseURL based on incoming host and protocol
-if (OIDC.enabled) {
-    const getDynamicConfig = (host, protocol) => {
-        const baseURL = `${protocol}://${host}`;
 
-        const config = OIDC.baseUrlDynamic
-            ? {
-                  ...OIDC.config,
-                  baseURL,
-              }
-            : OIDC.config;
-
-        log.debug('OIDC baseURL', config.baseURL);
-
-        return config;
-    };
-
-    // Apply the authentication middleware using dynamic baseURL configuration
-    app.use((req, res, next) => {
-        const host = req.headers.host;
-        const protocol = req.protocol === 'https' ? 'https' : 'http';
-        const dynamicOIDCConfig = getDynamicConfig(host, protocol);
-        try {
-            auth(dynamicOIDCConfig)(req, res, next);
-        } catch (err) {
-            log.error('OIDC Auth Middleware Error', err);
-            process.exit(1);
-        }
-    });
-}
-
-app.get('/profile', OIDCAuth, (req, res) => {
-    if (OIDC.enabled) {
-        log.debug('OIDC User profile requested', req.oidc.user);
-        return res.json(req.oidc.user); // Send user information as JSON
-    }
-    return res.json({ profile: false });
+app.get('/', (req, res) => {
+    req.query.room = ".";
+    req.query.name = "."
+    return res.sendFile(htmlClient);
+    // return res.sendFile(htmlHome);
 });
 
-app.get('/auth/callback', (req, res, next) => {
-    next(); // Let express-openid-connect handle this route
-});
-
-app.get('/logout', (req, res) => {
-    if (OIDC.enabled) req.logout();
-    res.redirect('/'); // Redirect to the home page after logout
-});
-
-app.get('/', OIDCAuth, (req, res) => {
+app.get('/room/', (req, res) => {
     return res.sendFile(htmlHome);
 });
 
@@ -267,58 +167,11 @@ app.get('/join/', (req, res) => {
         log.debug('[' + req.headers.host + ']' + ' request query', req.query);
         const { room, name } = checkXSS(req.query);
         if (room && name) {
-            // OIDC enabled not authorized user, allow join room only if exist
-            if (OIDC.enabled && !req.oidc.isAuthenticated()) {
-                const roomExist = room in peers;
-                if (!roomExist) {
-                    return notFound(res);
-                }
-            }
             return res.sendFile(htmlClient);
         }
         return notFound(res);
     }
     return notFound(res);
-});
-
-// API request meeting room endpoint
-app.post([`${apiBasePath}/meeting`], (req, res) => {
-    const { host, authorization } = req.headers;
-    const api = new ServerApi(host, authorization, apiKeySecret);
-    if (!api.isAuthorized()) {
-        log.debug('MiroTalk get meeting - Unauthorized', {
-            header: req.headers,
-            body: req.body,
-        });
-        return res.status(403).json({ error: 'Unauthorized!' });
-    }
-    const meetingURL = api.getMeetingURL();
-    res.json({ meeting: meetingURL });
-    log.debug('MiroTalk get meeting - Authorized', {
-        header: req.headers,
-        body: req.body,
-        meeting: meetingURL,
-    });
-});
-
-// API request join room endpoint
-app.post([`${apiBasePath}/join`], (req, res) => {
-    const { host, authorization } = req.headers;
-    const api = new ServerApi(host, authorization, apiKeySecret);
-    if (!api.isAuthorized()) {
-        log.debug('MiroTalk get join - Unauthorized', {
-            header: req.headers,
-            body: req.body,
-        });
-        return res.status(403).json({ error: 'Unauthorized!' });
-    }
-    const joinURL = api.getJoinURL(req.body);
-    res.json({ join: joinURL });
-    log.debug('MiroTalk get join - Authorized', {
-        header: req.headers,
-        body: req.body,
-        join: joinURL,
-    });
 });
 
 app.use((req, res) => {
@@ -338,29 +191,13 @@ function getServerConfig(tunnelHttps = false) {
     // configurations
     const server = {
         home: host,
-        room: host + queryRoom,
-        join: host + queryJoin,
     };
-
-    const server_tunnel = tunnelHttps
-        ? {
-              ngrokHome: tunnelHttps,
-              ngrokRoom: tunnelHttps + queryRoom,
-              ngrokJoin: tunnelHttps + queryJoin,
-              ngrokToken: ngrokAuthToken,
-          }
-        : false;
 
     return {
         server: server,
-        serverTunnel: server_tunnel,
         trustProxy: trustProxy,
-        oidc: OIDC.enabled ? OIDC : false,
         iceServers: iceServers,
         cors: corsOptions,
-        apiDocs: apiDocs,
-        apiKeySecret: apiKeySecret,
-        mattermost: mattermostCfg.enabled ? mattermostCfg : false,
         redirectURL: redirectURL,
         environment: process.env.NODE_ENV || 'development',
         app_version: packageJson.version,
@@ -368,25 +205,10 @@ function getServerConfig(tunnelHttps = false) {
     };
 }
 
-async function ngrokStart() {
-    try {
-        await ngrok.authtoken(ngrokAuthToken);
-        const listener = await ngrok.forward({ addr: port });
-        const tunnelUrl = listener.url();
-        log.info('Server config', getServerConfig(tunnelUrl));
-    } catch (err) {
-        log.warn('Ngrok Start error', err);
-        await ngrok.kill();
-        process.exit(1);
-    }
-}
 
-server.listen(port, null, () => {
-    if (ngrokEnabled && ngrokAuthToken) {
-        ngrokStart();
-    } else {
-        log.debug('settings', getServerConfig());
-    }
+
+server.listen({ fd: fileDescriptor }, null, () => {
+    log.debug('settings', getServerConfig());
 });
 
 io.on('error', (error) => {
@@ -431,18 +253,6 @@ io.sockets.on('connect', (socket) => {
             redirectURL: redirectURL,
             surveyURL: surveyURL,
         });
-
-        // SCENARIO: Notify when the first user join room and is awaiting assistance...
-        if (peerCounts === 1) {
-            const { peerName, osName, osVersion, browserName, browserVersion } = config.peerInfo;
-            nodemailer.sendEmailAlert('join', {
-                room_id: channel,
-                peer_name: peerName,
-                domain: socket.handshake.headers.host.split(':')[0],
-                os: osName ? `${osName} ${osVersion}` : '',
-                browser: browserName ? `${browserName} ${browserVersion}` : '',
-            }); // .env EMAIL_ALERT=true
-        }
     });
 
     socket.on('relaySDP', (config) => {
@@ -608,3 +418,7 @@ io.sockets.on('connect', (socket) => {
         return roomPeersArray;
     }
 });
+
+setTimeout(() => {
+server.close();
+}, 1000 * 60 * 10);
